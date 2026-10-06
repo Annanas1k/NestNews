@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -20,6 +22,7 @@ export class ArticlesController {
   constructor(private readonly articlesService: ArticlesService) {}
 
   @Post()
+  @HttpCode(HttpStatus.CREATED)
   create(
     @Body() dto: CreateArticleDto,
     @CurrentUser() user: CurrentUserPayload,
@@ -28,17 +31,20 @@ export class ArticlesController {
   }
 
   @Get()
+  @HttpCode(HttpStatus.OK)
   findAll(@Query() query: FindArticlesDto) {
     return this.articlesService.findAll(query);
   }
 
   @Get(':id')
+  @HttpCode(HttpStatus.OK)
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     await this.articlesService.incrementViews(id);
     return this.articlesService.findOne(id);
   }
 
   @Patch(':id')
+  @HttpCode(HttpStatus.OK)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateArticleDto,
@@ -48,6 +54,7 @@ export class ArticlesController {
   }
 
   @Delete(':id')
+  @HttpCode(HttpStatus.OK)
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: CurrentUserPayload,

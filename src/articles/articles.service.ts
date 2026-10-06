@@ -1,8 +1,6 @@
 import {
-  ConflictException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { CreateArticleDto } from './dto/create-article.dto';
@@ -10,30 +8,30 @@ import { UpdateArticleDto } from './dto/update-article.dto';
 import { FindArticlesDto } from './dto/find-articles.dto';
 import { ArticleStatus } from '../generated/prisma/client.js';
 import { CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import {
+  ResourceNotFoundException,
+  DuplicateResourceException,
+} from '../common/exceptions';
 
 @Injectable()
 export class ArticlesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateArticleDto, authorId: string) {
-    // Verify category exists
+    // Verifică că categoria există
     const category = await this.prisma.category.findUnique({
       where: { id: dto.categoryId },
     });
     if (!category) {
-      throw new NotFoundException(
-        `Category with id "${dto.categoryId}" not found`,
-      );
+      throw new ResourceNotFoundException('Categoria', dto.categoryId);
     }
 
-    // Verify slug uniqueness
+    // Verifică unicitatea slug-ului
     const existingArticle = await this.prisma.article.findUnique({
       where: { slug: dto.slug },
     });
     if (existingArticle) {
-      throw new ConflictException(
-        `An article with slug "${dto.slug}" already exists`,
-      );
+      throw new DuplicateResourceException('Articolul', 'slug', dto.slug);
     }
 
     return this.prisma.article.create({
@@ -111,7 +109,7 @@ export class ArticlesService {
     });
 
     if (!article) {
-      throw new NotFoundException(`Article with id "${id}" not found`);
+      throw new ResourceNotFoundException('Articolul', id);
     }
 
     return article;
@@ -123,29 +121,27 @@ export class ArticlesService {
     });
 
     if (!article) {
-      throw new NotFoundException(`Article with id "${id}" not found`);
+      throw new ResourceNotFoundException('Articolul', id);
     }
 
-    // Authorization: AUTHOR role can only update their own articles
+    // Autorizare: rolul AUTHOR poate actualiza doar articolele proprii
     if (currentUser.role === 'AUTHOR' && article.authorId !== currentUser.id) {
       throw new ForbiddenException(
-        'You can only update your own articles',
+        'Puteți actualiza doar propriile articole',
       );
     }
 
-    // If category is being changed, verify the new one exists
+    // Dacă se schimbă categoria, verifică că cea nouă există
     if (dto.categoryId) {
       const category = await this.prisma.category.findUnique({
         where: { id: dto.categoryId },
       });
       if (!category) {
-        throw new NotFoundException(
-          `Category with id "${dto.categoryId}" not found`,
-        );
+        throw new ResourceNotFoundException('Categoria', dto.categoryId);
       }
     }
 
-    // Set publishedAt when transitioning to PUBLISHED for the first time
+    // Setează publishedAt la tranziția inițială la PUBLISHED
     const data: Record<string, any> = { ...dto };
     if (
       dto.status === ArticleStatus.PUBLISHED &&
@@ -166,23 +162,25 @@ export class ArticlesService {
     });
 
     if (!article) {
-      throw new NotFoundException(`Article with id "${id}" not found`);
+      throw new ResourceNotFoundException('Articolul', id);
     }
 
-    // Authorization: AUTHOR role can only delete their own articles
+    // Autorizare: rolul AUTHOR poate șterge doar articolele proprii
     if (currentUser.role === 'AUTHOR' && article.authorId !== currentUser.id) {
       throw new ForbiddenException(
-        'You can only delete your own articles',
+        'Puteți șterge doar propriile articole',
       );
     }
 
-    return this.prisma.article.delete({ where: { id } });
+    await this.prisma.article.delete({ where: { id } });
+    return { message: `Articolul cu ID-ul "${id}" a fost șters cu succes` };
   }
 
   async incrementViews(id: string) {
+    // Returnează silențios dacă articolul nu există (nu blocăm findOne)
     return this.prisma.article.update({
       where: { id },
       data: { viewsCount: { increment: 1 } },
-    });
+    }).catch(() => null);
   }
 }

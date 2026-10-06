@@ -1,14 +1,16 @@
 import {
-  BadRequestException,
   ForbiddenException,
   Injectable,
-  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { ModerateCommentDto } from './dto/moderate-comment.dto';
 import { FindCommentsDto } from './dto/find-comments.dto';
 import { CurrentUserPayload } from '../common/decorators/current-user.decorator';
+import {
+  ResourceNotFoundException,
+  InvalidDataException,
+} from '../common/exceptions';
 
 export interface CommentWithReplies {
   replies: CommentWithReplies[];
@@ -20,35 +22,31 @@ export class CommentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateCommentDto, authorId: string) {
-    // Verify article exists
+    // Verifică că articolul există
     const article = await this.prisma.article.findUnique({
       where: { id: dto.articleId },
     });
     if (!article) {
-      throw new NotFoundException(
-        `Article with id "${dto.articleId}" not found`,
-      );
+      throw new ResourceNotFoundException('Articolul', dto.articleId);
     }
 
-    // If parentId is provided, verify the parent comment exists
-    // and belongs to the same article
+    // Dacă este furnizat parentId, verifică că comentariul părinte există
+    // și aparține aceluiași articol
     if (dto.parentId) {
       const parent = await this.prisma.comment.findUnique({
         where: { id: dto.parentId },
       });
       if (!parent) {
-        throw new NotFoundException(
-          `Parent comment with id "${dto.parentId}" not found`,
-        );
+        throw new ResourceNotFoundException('Comentariul părinte', dto.parentId);
       }
       if (parent.articleId !== dto.articleId) {
-        throw new BadRequestException(
-          'Parent comment does not belong to the same article',
+        throw new InvalidDataException(
+          'Comentariul părinte nu aparține aceluiași articol',
         );
       }
     }
 
-    // Status is always PENDING regardless of what the client sends
+    // Status-ul este întotdeauna PENDING indiferent de ce trimite clientul
     return this.prisma.comment.create({
       data: {
         content: dto.content,
@@ -61,14 +59,12 @@ export class CommentsService {
   }
 
   async findApprovedByArticle(articleId: string) {
-    // Verify article exists
+    // Verifică că articolul există
     const article = await this.prisma.article.findUnique({
       where: { id: articleId },
     });
     if (!article) {
-      throw new NotFoundException(
-        `Article with id "${articleId}" not found`,
-      );
+      throw new ResourceNotFoundException('Articolul', articleId);
     }
 
     const comments = await this.prisma.comment.findMany({
@@ -120,7 +116,7 @@ export class CommentsService {
       where: { id },
     });
     if (!comment) {
-      throw new NotFoundException(`Comment with id "${id}" not found`);
+      throw new ResourceNotFoundException('Comentariul', id);
     }
 
     return this.prisma.comment.update({
@@ -134,24 +130,25 @@ export class CommentsService {
       where: { id },
     });
     if (!comment) {
-      throw new NotFoundException(`Comment with id "${id}" not found`);
+      throw new ResourceNotFoundException('Comentariul', id);
     }
 
-    // User can delete own comment; ADMIN/EDITOR can delete any comment
+    // Utilizatorul poate șterge propriul comentariu; ADMIN/EDITOR pot șterge orice comentariu
     const isOwner = comment.authorId === currentUser.id;
     const isModerator =
       currentUser.role === 'ADMIN' || currentUser.role === 'EDITOR';
 
     if (!isOwner && !isModerator) {
-      throw new ForbiddenException('You can only delete your own comments');
+      throw new ForbiddenException('Puteți șterge doar propriile comentarii');
     }
 
-    return this.prisma.comment.delete({ where: { id } });
+    await this.prisma.comment.delete({ where: { id } });
+    return { message: `Comentariul cu ID-ul "${id}" a fost șters cu succes` };
   }
 
   /**
-   * Transforms a flat list of comments into a nested tree structure.
-   * Each node gets a `replies` array containing its direct children, recursively.
+   * Transformă o listă plată de comentarii într-o structură arborescentă.
+   * Fiecare nod primește un array `replies` cu copiii săi direcți, recursiv.
    */
   private buildTree(
     comments: Record<string, any>[],

@@ -3,6 +3,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -20,6 +22,7 @@ export class CommentsController {
   constructor(private readonly commentsService: CommentsService) {}
 
   @Post('comments')
+  @HttpCode(HttpStatus.CREATED)
   create(
     @Body() dto: CreateCommentDto,
     @CurrentUser() user: CurrentUserPayload,
@@ -28,6 +31,7 @@ export class CommentsController {
   }
 
   @Get('articles/:articleId/comments')
+  @HttpCode(HttpStatus.OK)
   findApprovedByArticle(
     @Param('articleId', ParseUUIDPipe) articleId: string,
   ) {
@@ -35,11 +39,13 @@ export class CommentsController {
   }
 
   @Get('comments/pending')
+  @HttpCode(HttpStatus.OK)
   findPending(@Query() query: FindCommentsDto) {
     return this.commentsService.findPending(query);
   }
 
   @Patch('comments/:id/moderate')
+  @HttpCode(HttpStatus.OK)
   moderate(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ModerateCommentDto,
@@ -48,6 +54,7 @@ export class CommentsController {
   }
 
   @Delete('comments/:id')
+  @HttpCode(HttpStatus.OK)
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: CurrentUserPayload,

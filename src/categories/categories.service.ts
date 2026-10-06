@@ -1,17 +1,15 @@
-/* eslint-disable @typescript-eslint/no-unsafe-argument */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
-import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FindCategoriesDto } from './dto/find-categories.dto';
+import { UpdateCategoryDto } from './dto/update-category.dto';
+import {
+  ResourceNotFoundException,
+  DuplicateResourceException,
+  InvalidDataException,
+} from '../common/exceptions';
 
 @Injectable()
 export class CategoriesService {
@@ -23,10 +21,24 @@ export class CategoriesService {
         where: { id: dto.parentId },
       });
       if (!parent) {
-        throw new NotFoundException(
-          `Parent category with id "${dto.parentId}" not found`,
-        );
+        throw new ResourceNotFoundException('Categoria părinte', dto.parentId);
       }
+    }
+
+    // Verifică unicitatea numelui
+    const existingByName = await this.prisma.category.findUnique({
+      where: { name: dto.name },
+    });
+    if (existingByName) {
+      throw new DuplicateResourceException('Categoria', 'numele', dto.name);
+    }
+
+    // Verifică unicitatea slug-ului
+    const existingBySlug = await this.prisma.category.findUnique({
+      where: { slug: dto.slug },
+    });
+    if (existingBySlug) {
+      throw new DuplicateResourceException('Categoria', 'slug', dto.slug);
     }
 
     return this.prisma.category.create({
@@ -70,7 +82,7 @@ export class CategoriesService {
     });
 
     if (!category) {
-      throw new NotFoundException(`Category with id "${id}" not found`);
+      throw new ResourceNotFoundException('Categoria', id);
     }
 
     return category;
@@ -86,22 +98,22 @@ export class CategoriesService {
 
     if (dto.parentId) {
       if (dto.parentId === id) {
-        throw new ConflictException('A category cannot be its own parent');
+        throw new InvalidDataException(
+          'O categorie nu poate fi propria sa categorie părinte',
+        );
       }
 
       const parent = await this.prisma.category.findUnique({
         where: { id: dto.parentId },
       });
       if (!parent) {
-        throw new NotFoundException(
-          `Parent category with id "${dto.parentId}" not found`,
-        );
+        throw new ResourceNotFoundException('Categoria părinte', dto.parentId);
       }
 
       const isDescendant = await this.isDescendantOf(dto.parentId, id);
       if (isDescendant) {
-        throw new ConflictException(
-          'A category cannot become a descendant of itself (circular reference detected)',
+        throw new InvalidDataException(
+          'O categorie nu poate deveni descendenta sa proprie (referință circulară detectată)',
         );
       }
     }
@@ -119,21 +131,22 @@ export class CategoriesService {
     });
 
     if (!category) {
-      throw new NotFoundException(`Category with id "${id}" not found`);
+      throw new ResourceNotFoundException('Categoria', id);
     }
 
     if (category._count.articles > 0) {
-      throw new ConflictException(
-        `Cannot delete category "${category.name}": it still has ${category._count.articles} associated article(s)`,
+      throw new InvalidDataException(
+        `Categoria "${category.name}" nu poate fi ștearsă: are ${category._count.articles} articol(e) asociat(e)`,
       );
     }
 
-    return this.prisma.category.delete({ where: { id } });
+    await this.prisma.category.delete({ where: { id } });
+    return { message: `Categoria "${category.name}" a fost ștearsă cu succes` };
   }
 
   /**
-   * Checks whether `candidateId` is a descendant of `ancestorId`
-   * by walking up the parent chain from `candidateId`.
+   * Verifică dacă `candidateId` este un descendent al `ancestorId`
+   * parcurgând lanțul de categorii părinte de la `candidateId` în sus.
    */
   private async isDescendantOf(
     candidateId: string,
@@ -162,7 +175,7 @@ export class CategoriesService {
   }
 
   /**
-   * Recursively loads children to build a full subtree.
+   * Încarcă recursiv copiii pentru a construi un arbore complet.
    */
   private async loadChildrenRecursively(
     category: Record<string, any>,
